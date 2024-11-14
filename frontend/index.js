@@ -32,6 +32,7 @@ class Game {
         this.gravity = 0.5;
         this.elasticity = 0.7;
         this.isDragging = false;
+        this.dragStartPos = { x: 0, y: 0 };
         this.score = 0;
         
         this.setupEventListeners();
@@ -51,47 +52,74 @@ class Game {
     setupEventListeners() {
         this.canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
         this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
-        this.canvas.addEventListener('mouseup', () => this.handleMouseUp());
+        this.canvas.addEventListener('mouseup', (e) => this.handleMouseUp(e));
+        document.addEventListener('mouseup', (e) => this.handleMouseUp(e));
         
         // Touch events
         this.canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
-            this.handleMouseDown(e.touches[0]);
+            const touch = e.touches[0];
+            this.handleMouseDown(touch);
         });
         this.canvas.addEventListener('touchmove', (e) => {
             e.preventDefault();
-            this.handleMouseMove(e.touches[0]);
+            const touch = e.touches[0];
+            this.handleMouseMove(touch);
         });
         this.canvas.addEventListener('touchend', (e) => {
             e.preventDefault();
-            this.handleMouseUp();
+            this.handleMouseUp(null);
         });
     }
     
-    handleMouseDown(e) {
+    getMousePos(e) {
         const rect = this.canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        
-        if (this.isPointInBird(x, y) && !this.bird.isLaunched) {
+        return {
+            x: e ? (e.clientX - rect.left) * (this.canvas.width / rect.width) : 0,
+            y: e ? (e.clientY - rect.top) * (this.canvas.height / rect.height) : 0
+        };
+    }
+    
+    handleMouseDown(e) {
+        const pos = this.getMousePos(e);
+        if (this.isPointInBird(pos.x, pos.y) && !this.bird.isLaunched) {
             this.isDragging = true;
+            this.dragStartPos = { x: pos.x, y: pos.y };
         }
     }
     
     handleMouseMove(e) {
         if (!this.isDragging) return;
         
-        const rect = this.canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
+        const pos = this.getMousePos(e);
         
-        this.bird.x = x;
-        this.bird.y = y;
+        // Limit the drag distance
+        const dx = pos.x - this.slingshot.x;
+        const dy = pos.y - this.slingshot.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const maxDistance = 100;
+        
+        if (distance > maxDistance) {
+            const angle = Math.atan2(dy, dx);
+            this.bird.x = this.slingshot.x + Math.cos(angle) * maxDistance;
+            this.bird.y = this.slingshot.y + Math.sin(angle) * maxDistance;
+        } else {
+            this.bird.x = pos.x;
+            this.bird.y = pos.y;
+        }
     }
     
-    handleMouseUp() {
+    handleMouseUp(e) {
         if (this.isDragging) {
-            this.launchBird();
+            const dx = this.bird.x - this.slingshot.x;
+            const dy = this.bird.y - this.slingshot.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance > 10) { // Minimum distance threshold for launch
+                this.launchBird();
+            } else {
+                this.resetBird();
+            }
         }
         this.isDragging = false;
     }
@@ -99,15 +127,15 @@ class Game {
     isPointInBird(x, y) {
         const dx = this.bird.x - x;
         const dy = this.bird.y - y;
-        return Math.sqrt(dx * dx + dy * dy) < this.bird.radius;
+        return Math.sqrt(dx * dx + dy * dy) < this.bird.radius * 1.5; // Increased hit area
     }
     
     launchBird() {
         this.bird.isLaunched = true;
-        const dx = this.bird.x - this.slingshot.x;
-        const dy = this.bird.y - this.slingshot.y;
-        this.bird.velocity.x = dx * 0.1;
-        this.bird.velocity.y = dy * 0.1;
+        const dx = this.slingshot.x - this.bird.x;
+        const dy = this.slingshot.y - this.bird.y;
+        this.bird.velocity.x = dx * 0.15;
+        this.bird.velocity.y = dy * 0.15;
     }
     
     update() {
@@ -120,6 +148,7 @@ class Game {
             if (this.bird.y + this.bird.radius > this.canvas.height) {
                 this.bird.y = this.canvas.height - this.bird.radius;
                 this.bird.velocity.y *= -this.elasticity;
+                this.bird.velocity.x *= 0.99; // Add friction
             }
             
             // Collision with walls
@@ -203,11 +232,11 @@ class Game {
         // Draw bird
         this.ctx.beginPath();
         this.ctx.arc(this.bird.x, this.bird.y, this.bird.radius, 0, Math.PI * 2);
-        this.ctx.fillStyle = this.bird.color;
+        this.ctx.fillStyle = this.isDragging ? '#FF6B6B' : this.bird.color;
         this.ctx.fill();
         this.ctx.closePath();
         
-        // Draw slingshot band when dragging
+        // Draw slingshot band
         if (this.isDragging) {
             this.ctx.beginPath();
             this.ctx.moveTo(this.slingshot.x - this.slingshot.width/2, this.slingshot.y);
@@ -215,6 +244,7 @@ class Game {
             this.ctx.moveTo(this.slingshot.x + this.slingshot.width/2, this.slingshot.y);
             this.ctx.lineTo(this.bird.x, this.bird.y);
             this.ctx.strokeStyle = '#4B2810';
+            this.ctx.lineWidth = 3;
             this.ctx.stroke();
         }
     }
